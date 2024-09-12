@@ -74,7 +74,7 @@ public class Interpreter {
             ex.printStackTrace();
             Interpreter.fatalError("Uncaught parsing error: " + ex, Interpreter.EXIT_PARSING_ERROR);
         }
-        //astRoot.println(System.out);
+        // astRoot.println(System.out);
         interpreter = new Interpreter(astRoot);
         interpreter.initMemoryManager(gcType, heapBytes);
         String returnValueAsString = interpreter.executeRoot(astRoot, quandaryArg).toString();
@@ -91,37 +91,50 @@ public class Interpreter {
 
     void initMemoryManager(String gcType, long heapBytes) {
         if (gcType.equals("Explicit")) {
-            throw new RuntimeException("Explicit not implemented");            
+            throw new RuntimeException("Explicit not implemented");
         } else if (gcType.equals("MarkSweep")) {
-            throw new RuntimeException("MarkSweep not implemented");            
+            throw new RuntimeException("MarkSweep not implemented");
         } else if (gcType.equals("RefCount")) {
-            throw new RuntimeException("RefCount not implemented");            
+            throw new RuntimeException("RefCount not implemented");
         } else if (gcType.equals("NoGC")) {
             // Nothing to do
         }
     }
 
     Object executeRoot(Program astRoot, long arg) {
-        return evaluate(astRoot.getExpr());
+        return evaluate(astRoot.getReturnStmt().getExpr());
     }
 
     Object evaluate(Expr expr) {
         if (expr instanceof ConstExpr) {
-            return ((ConstExpr)expr).getValue();
+            return ((ConstExpr) expr).getValue();
         } else if (expr instanceof BinaryExpr) {
-            BinaryExpr binaryExpr = (BinaryExpr)expr;
+            BinaryExpr binaryExpr = (BinaryExpr) expr;
             switch (binaryExpr.getOperator()) {
-                case BinaryExpr.PLUS: return (Long)evaluate(binaryExpr.getLeftExpr()) + (Long)evaluate(binaryExpr.getRightExpr());
-                case BinaryExpr.MINUS: return (Long)evaluate(binaryExpr.getLeftExpr()) - (Long)evaluate(binaryExpr.getRightExpr());
-                default: throw new RuntimeException("Unhandled operator");
+                case BinaryExpr.PLUS:
+                    return (Long) evaluate(binaryExpr.getLeftExpr()) + (Long) evaluate(binaryExpr.getRightExpr());
+                case BinaryExpr.MINUS:
+                    return (Long) evaluate(binaryExpr.getLeftExpr()) - (Long) evaluate(binaryExpr.getRightExpr());
+                case BinaryExpr.TIMES:
+                    return (Long) evaluate(binaryExpr.getLeftExpr()) * (Long) evaluate(binaryExpr.getRightExpr());
+                default:
+                    throw new RuntimeException("Unhandled operator");
+            }
+        } else if (expr instanceof UnaryExpr) {
+            UnaryExpr unaryExpr = (UnaryExpr) expr;
+            switch (unaryExpr.getOperator()) {
+                case UnaryExpr.MINUS:
+                    return -(Long) evaluate(unaryExpr.getExpr());
+                default:
+                    throw new RuntimeException("Unhandled operator");
             }
         } else {
             throw new RuntimeException("Unhandled Expr type");
         }
     }
 
-	public static void fatalError(String message, int processReturnCode) {
+    public static void fatalError(String message, int processReturnCode) {
         System.out.println(message);
         System.exit(processReturnCode);
-	}
+    }
 }

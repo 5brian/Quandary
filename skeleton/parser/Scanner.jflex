@@ -67,6 +67,9 @@ white_space = {new_line} | [ \t\f]
 "-"               { return symbol("-",  MINUS); }
 "("               { return symbol("(",  LPAREN); }
 ")"               { return symbol(")",  RPAREN); }
+"return"          { return symbol("return", RETURN); }
+"*"               { return symbol("*",  TIMES); }
+
 
 /* You shouldn't need to modify anything below this */
 

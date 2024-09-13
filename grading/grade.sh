@@ -36,8 +36,8 @@ do_one_test() {
             echo FAILED
         fi
         # Uncomment to debug FAILED test cases only:
-        # echo REF_OUT is $REF_OUT
-        # echo SUB_OUT is $SUB_OUT
+        echo REF_OUT is $REF_OUT
+        echo SUB_OUT is $SUB_OUT
     fi
     # Uncomment to debug ALL test cases:
     # echo REF_OUT is $REF_OUT

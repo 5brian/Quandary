@@ -19,4 +19,16 @@ public class UnaryExpr extends Expr {
     public Expr getExpr() {
         return expr;
     }
+
+    @Override
+    public String toString() {
+        String s = null;
+        switch (operator) {
+            case MINUS:
+                s = "-";
+                break;
+        }
+        return s + "(" + expr + ")";
+    }
+
 }

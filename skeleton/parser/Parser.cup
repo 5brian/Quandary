@@ -40,7 +40,7 @@ precedence right UMINUS;
 
 start with program;
 
-program ::= expr:e
+program ::= RETURN expr:e SEMICOLON
             {: RESULT = new Program(new ReturnStmt(e, loc(eleft, eright)), loc(eleft, eright)); :}
          ;
 
@@ -62,7 +62,3 @@ arithmeticExpr ::= expr:e1 PLUS expr:e2
                {: RESULT = new UnaryExpr(UnaryExpr.MINUS, e, loc(eleft, eright)); :}
                %prec UMINUS
             ;
-
-program ::= RETURN expr:e SEMICOLON
-            {: RESULT = new Program(new ReturnStmt(e, loc(eleft, eright)), loc(eleft, eright)); :}
-         ;

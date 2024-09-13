@@ -69,6 +69,7 @@ white_space = {new_line} | [ \t\f]
 ")"               { return symbol(")",  RPAREN); }
 "return"          { return symbol("return", RETURN); }
 "*"               { return symbol("*",  TIMES); }
+";"               { return symbol(";",  SEMICOLON); }
 
 
 /* You shouldn't need to modify anything below this */

@@ -1,21 +1,28 @@
 package ast;
 
-import java.io.PrintStream;
+import java.util.List;
 
 public class Program extends ASTNode {
+    private final String mainName;
+    private final String paramName;
+    private final List<Stmt> statements;
 
-    final ReturnStmt returnStmt;
-
-    public Program(ReturnStmt returnStmt, Location loc) {
+    public Program(String mainName, String paramName, List<Stmt> statements, Location loc) {
         super(loc);
-        this.returnStmt = returnStmt;
+        this.mainName = mainName;
+        this.paramName = paramName;
+        this.statements = statements;
     }
 
-    public ReturnStmt getReturnStmt() {
-        return returnStmt;
+    public String getMainName() {
+        return mainName;
     }
 
-    public void println(PrintStream ps) {
-        ps.println(returnStmt.getExpr());
+    public String getParamName() {
+        return paramName;
+    }
+
+    public List<Stmt> getStatements() {
+        return statements;
     }
 }

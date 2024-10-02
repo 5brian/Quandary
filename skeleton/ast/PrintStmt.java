@@ -1,9 +1,9 @@
 package ast;
 
-public class ReturnStmt extends Stmt {
+public class PrintStmt extends Stmt {
     private final Expr expr;
 
-    public ReturnStmt(Expr expr, Location loc) {
+    public PrintStmt(Expr expr, Location loc) {
         super(loc);
         this.expr = expr;
     }

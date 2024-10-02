@@ -50,6 +50,7 @@ precedence left PLUS, MINUS;
 precedence left TIMES;
 precedence right NOT, UMINUS;
 precedence nonassoc IF;
+//precedence left ELSE; // resolves dangling else
 precedence nonassoc ELSE;
 
 program ::= INT IDENT:name LPAREN INT IDENT:param RPAREN LBRACE stmtList:sl RBRACE

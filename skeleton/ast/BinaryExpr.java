@@ -5,6 +5,14 @@ public class BinaryExpr extends Expr {
     public static final int PLUS = 1;
     public static final int MINUS = 2;
     public static final int TIMES = 3;
+    public static final int LT = 4;
+    public static final int GT = 5;
+    public static final int LEQ = 6;
+    public static final int GEQ = 7;
+    public static final int EQEQ = 8;
+    public static final int NEQ = 9;
+    public static final int AND = 10;
+    public static final int OR = 11;
 
     final Expr expr1;
     final int operator;
@@ -29,17 +37,17 @@ public class BinaryExpr extends Expr {
         return expr2;
     }
 
-    @Override
-    public String toString() {
-        String s = null;
-        switch (operator) {
-            case PLUS:
-                s = "+";
-                break;
-            case MINUS:
-                s = "-";
-                break;
-        }
-        return "(" + expr1 + " " + s + " " + expr2 + ")";
-    }
+    // @Override
+    // public String toString() {
+    // String s = null;
+    // switch (operator) {
+    // case PLUS:
+    // s = "+";
+    // break;
+    // case MINUS:
+    // s = "-";
+    // break;
+    // }
+    // return "(" + expr1 + " " + s + " " + expr2 + ")";
+    // }
 }

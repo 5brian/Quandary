@@ -1,6 +1,8 @@
 package interpreter;
 
 import java.io.*;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Random;
 
 import parser.ParserWrapper;
@@ -83,6 +85,7 @@ public class Interpreter {
 
     final Program astRoot;
     final Random random;
+    private final Map<String, Object> variables = new HashMap<>();
 
     private Interpreter(Program astRoot) {
         this.astRoot = astRoot;
@@ -102,34 +105,119 @@ public class Interpreter {
     }
 
     Object executeRoot(Program astRoot, long arg) {
-        return evaluate(astRoot.getReturnStmt().getExpr());
+        variables.put(astRoot.getParamName(), arg);
+
+        for (Stmt stmt : astRoot.getStatements()) {
+            Object result = executeStatement(stmt);
+            if (result instanceof ReturnValue) {
+                return ((ReturnValue) result).getValue();
+            }
+        }
+
+        throw new RuntimeException("Main function must end with a return statement");
+    }
+
+    Object executeStatement(Stmt stmt) {
+        if (stmt instanceof VarDecl) {
+            VarDecl varDecl = (VarDecl) stmt;
+            variables.put(varDecl.getName(), evaluate(varDecl.getInitExpr()));
+        } else if (stmt instanceof PrintStmt) {
+            PrintStmt printStmt = (PrintStmt) stmt;
+            System.out.println(evaluate(printStmt.getExpr()));
+        } else if (stmt instanceof IfStmt) {
+            IfStmt ifStmt = (IfStmt) stmt;
+            if ((Boolean) evaluate(ifStmt.getCondition())) {
+                return executeStatement(ifStmt.getThenStmt());
+            } else if (ifStmt.getElseStmt() != null) {
+                return executeStatement(ifStmt.getElseStmt());
+            }
+        } else if (stmt instanceof WhileStmt) {
+            WhileStmt whileStmt = (WhileStmt) stmt;
+            while ((Boolean) evaluate(whileStmt.getCondition())) {
+                Object result = executeStatement(whileStmt.getBody());
+                if (result instanceof ReturnValue) {
+                    return result;
+                }
+            }
+        } else if (stmt instanceof ReturnStmt) {
+            ReturnStmt returnStmt = (ReturnStmt) stmt;
+            return new ReturnValue(evaluate(returnStmt.getExpr()));
+        } else if (stmt instanceof BlockStmt) {
+            BlockStmt blockStmt = (BlockStmt) stmt;
+            for (Stmt s : blockStmt.getStatements()) {
+                Object result = executeStatement(s);
+                if (result instanceof ReturnValue) {
+                    return result;
+                }
+            }
+        }
+        return null;
     }
 
     Object evaluate(Expr expr) {
         if (expr instanceof ConstExpr) {
             return ((ConstExpr) expr).getValue();
+        } else if (expr instanceof VarExpr) {
+            String name = ((VarExpr) expr).getName();
+            if (!variables.containsKey(name)) {
+                throw new RuntimeException("Undefined variable: " + name);
+            }
+            return variables.get(name);
         } else if (expr instanceof BinaryExpr) {
             BinaryExpr binaryExpr = (BinaryExpr) expr;
+            Object left = evaluate(binaryExpr.getLeftExpr());
+            Object right = evaluate(binaryExpr.getRightExpr());
+
             switch (binaryExpr.getOperator()) {
                 case BinaryExpr.PLUS:
-                    return (Long) evaluate(binaryExpr.getLeftExpr()) + (Long) evaluate(binaryExpr.getRightExpr());
+                    return (Long) left + (Long) right;
                 case BinaryExpr.MINUS:
-                    return (Long) evaluate(binaryExpr.getLeftExpr()) - (Long) evaluate(binaryExpr.getRightExpr());
+                    return (Long) left - (Long) right;
                 case BinaryExpr.TIMES:
-                    return (Long) evaluate(binaryExpr.getLeftExpr()) * (Long) evaluate(binaryExpr.getRightExpr());
+                    return (Long) left * (Long) right;
+                case BinaryExpr.LT:
+                    return (Long) left < (Long) right;
+                case BinaryExpr.GT:
+                    return (Long) left > (Long) right;
+                case BinaryExpr.LEQ:
+                    return (Long) left <= (Long) right;
+                case BinaryExpr.GEQ:
+                    return (Long) left >= (Long) right;
+                case BinaryExpr.EQEQ:
+                    return left.equals(right);
+                case BinaryExpr.NEQ:
+                    return !left.equals(right);
+                case BinaryExpr.AND:
+                    return (Boolean) left && (Boolean) right;
+                case BinaryExpr.OR:
+                    return (Boolean) left || (Boolean) right;
                 default:
-                    throw new RuntimeException("Unhandled operator");
+                    throw new RuntimeException("Unknown binary operator");
             }
         } else if (expr instanceof UnaryExpr) {
             UnaryExpr unaryExpr = (UnaryExpr) expr;
+            Object operand = evaluate(unaryExpr.getExpr());
             switch (unaryExpr.getOperator()) {
                 case UnaryExpr.MINUS:
-                    return -(Long) evaluate(unaryExpr.getExpr());
+                    return -(Long) operand;
+                case UnaryExpr.NOT:
+                    return !(Boolean) operand;
                 default:
-                    throw new RuntimeException("Unhandled operator");
+                    throw new RuntimeException("Unknown unary operator");
             }
-        } else {
-            throw new RuntimeException("Unhandled Expr type");
+        }
+        throw new RuntimeException("Unknown expression type");
+    }
+
+    private static class ReturnValue {
+        private final Object value;
+
+        ReturnValue(Object value) {
+            this.value = value;
+        }
+
+        Object getValue() {
+            return value;
         }
     }
 

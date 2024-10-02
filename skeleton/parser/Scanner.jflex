@@ -50,6 +50,8 @@ import interpreter.Interpreter;
 
 IntLiteral = 0 | [1-9][0-9]*
 
+Identifier = [a-zA-Z_][a-zA-Z0-9_]*
+
 new_line = \r|\n|\r\n;
 
 white_space = {new_line} | [ \t\f]
@@ -70,7 +72,25 @@ white_space = {new_line} | [ \t\f]
 "return"          { return symbol("return", RETURN); }
 "*"               { return symbol("*",  TIMES); }
 ";"               { return symbol(";",  SEMICOLON); }
+"="               { return symbol("=",  EQ); }
+"{"               { return symbol("{",  LBRACE); }
+"}"               { return symbol("}",  RBRACE); }
+"if"              { return symbol("if", IF); }
+"else"            { return symbol("else", ELSE); }
+"while"           { return symbol("while", WHILE); }
+"print"           { return symbol("print", PRINT); }
+"int"             { return symbol("int", INT); }
+"<="              { return symbol("<=", LEQ); }
+">="              { return symbol(">=", GEQ); }
+"=="              { return symbol("==", EQEQ); }
+"!="              { return symbol("!=", NEQ); }
+"<"               { return symbol("<",  LT); }
+">"               { return symbol(">",  GT); }
+"&&"              { return symbol("&&", AND); }
+"||"              { return symbol("||", OR); }
+"!"               { return symbol("!",  NOT); }
 
+{Identifier} { return symbol("IDENT", IDENT, yytext()); }
 
 /* You shouldn't need to modify anything below this */
 

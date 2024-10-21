@@ -1,9 +1,7 @@
 package interpreter;
 
 import java.io.*;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
 
 import parser.ParserWrapper;
 import ast.*;
@@ -76,7 +74,6 @@ public class Interpreter {
             ex.printStackTrace();
             Interpreter.fatalError("Uncaught parsing error: " + ex, Interpreter.EXIT_PARSING_ERROR);
         }
-        // astRoot.println(System.out);
         interpreter = new Interpreter(astRoot);
         interpreter.initMemoryManager(gcType, heapBytes);
         String returnValueAsString = interpreter.executeRoot(astRoot, quandaryArg).toString();
@@ -85,11 +82,15 @@ public class Interpreter {
 
     final Program astRoot;
     final Random random;
-    private final Map<String, Object> variables = new HashMap<>();
+    private final Map<String, FuncDef> functions = new HashMap<>();
+    private final Stack<Map<String, Object>> envStack = new Stack<>();
 
     private Interpreter(Program astRoot) {
         this.astRoot = astRoot;
         this.random = new Random();
+        for (FuncDef funcDef : astRoot.getFuncDefList()) {
+            functions.put(funcDef.getName(), funcDef);
+        }
     }
 
     void initMemoryManager(String gcType, long heapBytes) {
@@ -105,22 +106,44 @@ public class Interpreter {
     }
 
     Object executeRoot(Program astRoot, long arg) {
-        variables.put(astRoot.getParamName(), arg);
+        FuncDef mainFunc = functions.get("main");
+        if (mainFunc == null) {
+            throw new RuntimeException("Main function not found");
+        }
+        return executeFunction(mainFunc, Collections.singletonList(arg));
+    }
 
-        for (Stmt stmt : astRoot.getStatements()) {
-            Object result = executeStatement(stmt);
+    private Object executeFunction(FuncDef funcDef, List<Object> args) {
+        Map<String, Object> localVars = new HashMap<>();
+
+        List<VarDecl> params = funcDef.getParams();
+        if (params.size() != args.size()) {
+            throw new RuntimeException("Incorrect number of arguments for function: " + funcDef.getName());
+        }
+
+        for (int i = 0; i < params.size(); i++) {
+            localVars.put(params.get(i).getName(), args.get(i));
+        }
+
+        envStack.push(localVars);
+
+        Object result = null;
+        for (Stmt stmt : funcDef.getBody()) {
+            result = executeStatement(stmt);
             if (result instanceof ReturnValue) {
+                envStack.pop();
                 return ((ReturnValue) result).getValue();
             }
         }
 
-        throw new RuntimeException("Main function must end with a return statement");
+        envStack.pop();
+        throw new RuntimeException("Function must end with a return statement: " + funcDef.getName());
     }
 
     Object executeStatement(Stmt stmt) {
         if (stmt instanceof VarDecl) {
             VarDecl varDecl = (VarDecl) stmt;
-            variables.put(varDecl.getName(), evaluate(varDecl.getInitExpr()));
+            envStack.peek().put(varDecl.getName(), evaluate(varDecl.getInitExpr()));
         } else if (stmt instanceof PrintStmt) {
             PrintStmt printStmt = (PrintStmt) stmt;
             System.out.println(evaluate(printStmt.getExpr()));
@@ -144,12 +167,18 @@ public class Interpreter {
             return new ReturnValue(evaluate(returnStmt.getExpr()));
         } else if (stmt instanceof BlockStmt) {
             BlockStmt blockStmt = (BlockStmt) stmt;
+            envStack.push(new HashMap<>());
             for (Stmt s : blockStmt.getStatements()) {
                 Object result = executeStatement(s);
                 if (result instanceof ReturnValue) {
+                    envStack.pop();
                     return result;
                 }
             }
+            envStack.pop();
+        } else if (stmt instanceof CallStmt) {
+            CallStmt callStmt = (CallStmt) stmt;
+            executeCall(callStmt.getName(), callStmt.getArgs());
         }
         return null;
     }
@@ -159,10 +188,12 @@ public class Interpreter {
             return ((ConstExpr) expr).getValue();
         } else if (expr instanceof VarExpr) {
             String name = ((VarExpr) expr).getName();
-            if (!variables.containsKey(name)) {
-                throw new RuntimeException("Undefined variable: " + name);
+            for (int i = envStack.size() - 1; i >= 0; i--) {
+                if (envStack.get(i).containsKey(name)) {
+                    return envStack.get(i).get(name);
+                }
             }
-            return variables.get(name);
+            throw new RuntimeException("Undefined variable: " + name);
         } else if (expr instanceof BinaryExpr) {
             BinaryExpr binaryExpr = (BinaryExpr) expr;
             Object left = evaluate(binaryExpr.getLeftExpr());
@@ -205,8 +236,31 @@ public class Interpreter {
                 default:
                     throw new RuntimeException("Unknown unary operator");
             }
+        } else if (expr instanceof CallExpr) {
+            CallExpr callExpr = (CallExpr) expr;
+            return executeCall(callExpr.getFuncName(), callExpr.getArguments());
         }
         throw new RuntimeException("Unknown expression type");
+    }
+
+    private Object executeCall(String funcName, List<Expr> args) {
+        List<Object> evaluatedArgs = new ArrayList<>();
+        for (Expr arg : args) {
+            evaluatedArgs.add(evaluate(arg));
+        }
+
+        if (funcName.equals("randomInt")) {
+            if (evaluatedArgs.size() != 1 || !(evaluatedArgs.get(0) instanceof Long)) {
+                throw new RuntimeException("randomInt expects one integer argument");
+            }
+            return random.nextInt(((Long) evaluatedArgs.get(0)).intValue());
+        }
+
+        FuncDef funcDef = functions.get(funcName);
+        if (funcDef == null) {
+            throw new RuntimeException("Undefined function: " + funcName);
+        }
+        return executeFunction(funcDef, evaluatedArgs);
     }
 
     private static class ReturnValue {

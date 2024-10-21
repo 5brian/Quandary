@@ -24,10 +24,9 @@ parser code {:
   ast.Location loc(int line, int column) {
     return new ast.Location(line, column);
   }
-
 :};
 
-terminal PLUS, MINUS, TIMES, LPAREN, RPAREN, LBRACE, RBRACE, SEMICOLON, EQ;
+terminal PLUS, MINUS, TIMES, LPAREN, RPAREN, LBRACE, RBRACE, SEMICOLON, EQ, COMMA;
 terminal IF, ELSE, WHILE, PRINT, RETURN, INT;
 terminal LEQ, GEQ, EQEQ, NEQ, LT, GT, AND, OR, NOT;
 terminal Long INTCONST;
@@ -40,7 +39,10 @@ non terminal Stmt            stmt;
 non terminal VarDecl         varDecl;
 non terminal Expr            expr;
 non terminal Stmt            ifStmt;
-non terminal Expr            cond;
+non terminal List<FuncDef>   funcDefList;
+non terminal FuncDef         funcDef;
+non terminal List<VarDecl>   paramList;
+non terminal List<Expr>      exprList;
 
 precedence left OR;
 precedence left AND;
@@ -49,13 +51,33 @@ precedence left LT, GT, LEQ, GEQ;
 precedence left PLUS, MINUS;
 precedence left TIMES;
 precedence right NOT, UMINUS;
+precedence left LPAREN;
 precedence nonassoc IF;
-//precedence left ELSE; // resolves dangling else
 precedence nonassoc ELSE;
 
-program ::= INT IDENT:name LPAREN INT IDENT:param RPAREN LBRACE stmtList:sl RBRACE
-            {: RESULT = new Program(name, param, sl, loc(nameleft, nameright)); :}
+program ::= funcDefList:fl
+            {: RESULT = new Program(fl, loc(flleft, flright)); :}
          ;
+
+funcDefList ::= funcDef:fd funcDefList:fl
+                {: fl.add(0, fd); RESULT = fl; :}
+              | funcDef:fd
+                {: List<FuncDef> list = new ArrayList<>(); list.add(fd); RESULT = list; :}
+              ;
+
+funcDef ::= INT IDENT:name LPAREN paramList:params RPAREN LBRACE stmtList:body RBRACE
+            {: RESULT = new FuncDef(name, params, body, loc(nameleft, nameright)); :}
+          ;
+
+paramList ::= INT IDENT:param COMMA paramList:pl
+              {: pl.add(0, new VarDecl(param, null, loc(paramleft, paramright))); RESULT = pl; :}
+            | INT IDENT:param
+              {: List<VarDecl> params = new ArrayList<>();
+                 params.add(new VarDecl(param, null, loc(paramleft, paramright)));
+                 RESULT = params; :}
+            | /* empty */
+              {: RESULT = new ArrayList<>(); :}
+            ;
 
 stmtList ::= stmt:s stmtList:sl
              {: sl.add(0, s); RESULT = sl; :}
@@ -69,17 +91,19 @@ stmt ::= varDecl:vd SEMICOLON
          {: RESULT = new PrintStmt(e, loc(eleft, eright)); :}
       |  ifStmt:i
          {: RESULT = i; :}
-      |  WHILE LPAREN cond:c RPAREN stmt:s
+      |  WHILE LPAREN expr:c RPAREN stmt:s
          {: RESULT = new WhileStmt(c, s, loc(cleft, cright)); :}
       |  RETURN expr:e SEMICOLON
          {: RESULT = new ReturnStmt(e, loc(eleft, eright)); :}
       |  LBRACE stmtList:sl RBRACE
          {: RESULT = new BlockStmt(sl, loc(slleft, slright)); :}
+      |  IDENT:name LPAREN exprList:args RPAREN SEMICOLON
+         {: RESULT = new CallStmt(name, args, loc(nameleft, nameright)); :}
       ;
 
-ifStmt ::= IF LPAREN cond:c RPAREN stmt:s
+ifStmt ::= IF LPAREN expr:c RPAREN stmt:s
            {: RESULT = new IfStmt(c, s, null, loc(cleft, cright)); :}
-         | IF LPAREN cond:c RPAREN stmt:s1 ELSE stmt:s2
+         | IF LPAREN expr:c RPAREN stmt:s1 ELSE stmt:s2
            {: RESULT = new IfStmt(c, s1, s2, loc(cleft, cright)); :}
          ;
 
@@ -102,9 +126,13 @@ expr ::= INTCONST:c
          %prec UMINUS
       |  LPAREN expr:e RPAREN
          {: RESULT = e; :}
-      ;
-
-cond ::= expr:e1 LEQ expr:e2
+      |  IDENT:name LPAREN exprList:args RPAREN
+         {: RESULT = new CallExpr(name, args, loc(nameleft, nameright)); :}
+      |  expr:e1 LT expr:e2
+         {: RESULT = new BinaryExpr(e1, BinaryExpr.LT, e2, loc(e1left, e1right)); :}
+      |  expr:e1 GT expr:e2
+         {: RESULT = new BinaryExpr(e1, BinaryExpr.GT, e2, loc(e1left, e1right)); :}
+      |  expr:e1 LEQ expr:e2
          {: RESULT = new BinaryExpr(e1, BinaryExpr.LEQ, e2, loc(e1left, e1right)); :}
       |  expr:e1 GEQ expr:e2
          {: RESULT = new BinaryExpr(e1, BinaryExpr.GEQ, e2, loc(e1left, e1right)); :}
@@ -112,16 +140,18 @@ cond ::= expr:e1 LEQ expr:e2
          {: RESULT = new BinaryExpr(e1, BinaryExpr.EQEQ, e2, loc(e1left, e1right)); :}
       |  expr:e1 NEQ expr:e2
          {: RESULT = new BinaryExpr(e1, BinaryExpr.NEQ, e2, loc(e1left, e1right)); :}
-      |  expr:e1 LT expr:e2
-         {: RESULT = new BinaryExpr(e1, BinaryExpr.LT, e2, loc(e1left, e1right)); :}
-      |  expr:e1 GT expr:e2
-         {: RESULT = new BinaryExpr(e1, BinaryExpr.GT, e2, loc(e1left, e1right)); :}
-      |  cond:c1 AND cond:c2
-         {: RESULT = new BinaryExpr(c1, BinaryExpr.AND, c2, loc(c1left, c1right)); :}
-      |  cond:c1 OR cond:c2
-         {: RESULT = new BinaryExpr(c1, BinaryExpr.OR, c2, loc(c1left, c1right)); :}
-      |  NOT cond:c
-         {: RESULT = new UnaryExpr(UnaryExpr.NOT, c, loc(cleft, cright)); :}
-      |  LPAREN cond:c RPAREN
-         {: RESULT = c; :}
+      |  expr:e1 AND expr:e2
+         {: RESULT = new BinaryExpr(e1, BinaryExpr.AND, e2, loc(e1left, e1right)); :}
+      |  expr:e1 OR expr:e2
+         {: RESULT = new BinaryExpr(e1, BinaryExpr.OR, e2, loc(e1left, e1right)); :}
+      |  NOT expr:e
+         {: RESULT = new UnaryExpr(UnaryExpr.NOT, e, loc(eleft, eright)); :}
       ;
+
+exprList ::= expr:e COMMA exprList:el
+             {: el.add(0, e); RESULT = el; :}
+           | expr:e
+             {: List<Expr> list = new ArrayList<>(); list.add(e); RESULT = list; :}
+           | /* empty */
+             {: RESULT = new ArrayList<>(); :}
+           ;

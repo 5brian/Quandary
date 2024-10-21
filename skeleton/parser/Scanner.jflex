@@ -89,6 +89,7 @@ white_space = {new_line} | [ \t\f]
 "&&"              { return symbol("&&", AND); }
 "||"              { return symbol("||", OR); }
 "!"               { return symbol("!",  NOT); }
+","               { return symbol(",", COMMA); }
 
 {Identifier} { return symbol("IDENT", IDENT, yytext()); }
 

@@ -253,7 +253,7 @@ public class Interpreter {
             if (evaluatedArgs.size() != 1 || !(evaluatedArgs.get(0) instanceof Long)) {
                 throw new RuntimeException("randomInt expects one integer argument");
             }
-            return random.nextInt(((Long) evaluatedArgs.get(0)).intValue());
+            return (long) random.nextInt(((Long) evaluatedArgs.get(0)).intValue());
         }
 
         FuncDef funcDef = functions.get(funcName);

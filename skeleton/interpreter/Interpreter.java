@@ -2,21 +2,16 @@ package interpreter;
 
 import java.io.*;
 import java.util.*;
-
 import parser.ParserWrapper;
 import ast.*;
 
 public class Interpreter {
-
-    // Process return codes
     public static final int EXIT_SUCCESS = 0;
     public static final int EXIT_PARSING_ERROR = 1;
     public static final int EXIT_STATIC_CHECKING_ERROR = 2;
     public static final int EXIT_DYNAMIC_TYPE_ERROR = 3;
     public static final int EXIT_NIL_REF_ERROR = 4;
     public static final int EXIT_QUANDARY_HEAP_OUT_OF_MEMORY_ERROR = 5;
-    public static final int EXIT_DATA_RACE_ERROR = 6;
-    public static final int EXIT_NONDETERMINISM_ERROR = 7;
 
     static private Interpreter interpreter;
 
@@ -25,7 +20,7 @@ public class Interpreter {
     }
 
     public static void main(String[] args) {
-        String gcType = "NoGC"; // default for skeleton, which only supports NoGC
+        String gcType = "NoGC";
         long heapBytes = 1 << 14;
         int i = 0;
         String filename;
@@ -74,16 +69,28 @@ public class Interpreter {
             ex.printStackTrace();
             Interpreter.fatalError("Uncaught parsing error: " + ex, Interpreter.EXIT_PARSING_ERROR);
         }
+
         interpreter = new Interpreter(astRoot);
         interpreter.initMemoryManager(gcType, heapBytes);
-        String returnValueAsString = interpreter.executeRoot(astRoot, quandaryArg).toString();
-        System.out.println("Interpreter returned " + returnValueAsString);
+        Object returnValue = interpreter.executeRoot(astRoot, quandaryArg);
+        System.out.println("Interpreter returned " + formatValue(returnValue));
+    }
+
+    private static String formatValue(Object value) {
+        if (value == null) {
+            return "nil";
+        } else if (value instanceof HeapObject) {
+            return value.toString();
+        } else {
+            return value.toString();
+        }
     }
 
     final Program astRoot;
     final Random random;
     private final Map<String, FuncDef> functions = new HashMap<>();
     private final Stack<Map<String, Object>> envStack = new Stack<>();
+    private final Map<String, Boolean> mutableVars = new HashMap<>();
 
     private Interpreter(Program astRoot) {
         this.astRoot = astRoot;
@@ -94,14 +101,8 @@ public class Interpreter {
     }
 
     void initMemoryManager(String gcType, long heapBytes) {
-        if (gcType.equals("Explicit")) {
-            throw new RuntimeException("Explicit not implemented");
-        } else if (gcType.equals("MarkSweep")) {
-            throw new RuntimeException("MarkSweep not implemented");
-        } else if (gcType.equals("RefCount")) {
-            throw new RuntimeException("RefCount not implemented");
-        } else if (gcType.equals("NoGC")) {
-            // Nothing to do
+        if (gcType.equals("Explicit") || gcType.equals("MarkSweep")) {
+            throw new RuntimeException(gcType + " not implemented");
         }
     }
 
@@ -115,19 +116,23 @@ public class Interpreter {
 
     private Object executeFunction(FuncDef funcDef, List<Object> args) {
         Map<String, Object> localVars = new HashMap<>();
-
         List<VarDecl> params = funcDef.getParams();
+
         if (params.size() != args.size()) {
             throw new RuntimeException("Incorrect number of arguments for function: " + funcDef.getName());
         }
 
         for (int i = 0; i < params.size(); i++) {
-            localVars.put(params.get(i).getName(), args.get(i));
+            VarDecl param = params.get(i);
+            localVars.put(param.getName(), args.get(i));
+            if (param.isMutable()) {
+                mutableVars.put(param.getName(), true);
+            }
         }
 
         envStack.push(localVars);
-
         Object result = null;
+
         for (Stmt stmt : funcDef.getBody()) {
             result = executeStatement(stmt);
             if (result instanceof ReturnValue) {
@@ -143,7 +148,29 @@ public class Interpreter {
     Object executeStatement(Stmt stmt) {
         if (stmt instanceof VarDecl) {
             VarDecl varDecl = (VarDecl) stmt;
-            envStack.peek().put(varDecl.getName(), evaluate(varDecl.getInitExpr()));
+            Object value = evaluate(varDecl.getInitExpr());
+            envStack.peek().put(varDecl.getName(), value);
+            if (varDecl.isMutable()) {
+                mutableVars.put(varDecl.getName(), true);
+            }
+        } else if (stmt instanceof AssignStmt) {
+            AssignStmt assignStmt = (AssignStmt) stmt;
+            String name = assignStmt.getName();
+            if (!isMutable(name)) {
+                throw new RuntimeException("Cannot assign to immutable variable: " + name);
+            }
+            Object value = evaluate(assignStmt.getExpr());
+            boolean found = false;
+            for (int i = envStack.size() - 1; i >= 0; i--) {
+                if (envStack.get(i).containsKey(name)) {
+                    envStack.get(i).put(name, value);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                throw new RuntimeException("Undefined variable: " + name);
+            }
         } else if (stmt instanceof PrintStmt) {
             PrintStmt printStmt = (PrintStmt) stmt;
             System.out.println(evaluate(printStmt.getExpr()));
@@ -162,9 +189,6 @@ public class Interpreter {
                     return result;
                 }
             }
-        } else if (stmt instanceof ReturnStmt) {
-            ReturnStmt returnStmt = (ReturnStmt) stmt;
-            return new ReturnValue(evaluate(returnStmt.getExpr()));
         } else if (stmt instanceof BlockStmt) {
             BlockStmt blockStmt = (BlockStmt) stmt;
             envStack.push(new HashMap<>());
@@ -176,9 +200,16 @@ public class Interpreter {
                 }
             }
             envStack.pop();
+        } else if (stmt instanceof ReturnStmt) {
+            ReturnStmt returnStmt = (ReturnStmt) stmt;
+            return new ReturnValue(evaluate(returnStmt.getExpr()));
         } else if (stmt instanceof CallStmt) {
             CallStmt callStmt = (CallStmt) stmt;
-            executeCall(callStmt.getName(), callStmt.getArgs());
+            List<Object> argValues = new ArrayList<>();
+            for (Expr arg : callStmt.getArgs()) {
+                argValues.add(evaluate(arg));
+            }
+            executeBuiltinOrUserFunction(callStmt.getName(), argValues);
         }
         return null;
     }
@@ -186,6 +217,8 @@ public class Interpreter {
     Object evaluate(Expr expr) {
         if (expr instanceof ConstExpr) {
             return ((ConstExpr) expr).getValue();
+        } else if (expr instanceof NilExpr) {
+            return null;
         } else if (expr instanceof VarExpr) {
             String name = ((VarExpr) expr).getName();
             for (int i = envStack.size() - 1; i >= 0; i--) {
@@ -215,9 +248,9 @@ public class Interpreter {
                 case BinaryExpr.GEQ:
                     return (Long) left >= (Long) right;
                 case BinaryExpr.EQEQ:
-                    return left.equals(right);
+                    return left == null ? right == null : left.equals(right);
                 case BinaryExpr.NEQ:
-                    return !left.equals(right);
+                    return left == null ? right != null : !left.equals(right);
                 case BinaryExpr.AND:
                     return (Boolean) left && (Boolean) right;
                 case BinaryExpr.OR:
@@ -238,29 +271,83 @@ public class Interpreter {
             }
         } else if (expr instanceof CallExpr) {
             CallExpr callExpr = (CallExpr) expr;
-            return executeCall(callExpr.getFuncName(), callExpr.getArguments());
+            List<Object> argValues = new ArrayList<>();
+            for (Expr arg : callExpr.getArguments()) {
+                argValues.add(evaluate(arg));
+            }
+            return executeBuiltinOrUserFunction(callExpr.getFuncName(), argValues);
+        } else if (expr instanceof DotExpr) {
+            DotExpr dotExpr = (DotExpr) expr;
+            Object left = evaluate(dotExpr.getLeft());
+            Object right = evaluate(dotExpr.getRight());
+            return new HeapObject(left, right);
+        } else if (expr instanceof TypeCastExpr) {
+            TypeCastExpr typeCastExpr = (TypeCastExpr) expr;
+            Object value = evaluate(typeCastExpr.getExpr());
+            // For now, we're not doing any actual type checking
+            return value;
         }
         throw new RuntimeException("Unknown expression type");
     }
 
-    private Object executeCall(String funcName, List<Expr> args) {
-        List<Object> evaluatedArgs = new ArrayList<>();
-        for (Expr arg : args) {
-            evaluatedArgs.add(evaluate(arg));
+    private Object executeBuiltinOrUserFunction(String funcName, List<Object> args) {
+        switch (funcName) {
+            case "randomInt":
+                if (args.size() != 1 || !(args.get(0) instanceof Long)) {
+                    throw new RuntimeException("randomInt expects one integer argument");
+                }
+                return (long) random.nextInt(((Long) args.get(0)).intValue());
+            case "left":
+                if (args.size() != 1 || !(args.get(0) instanceof HeapObject)) {
+                    fatalError("left() requires a Ref argument", EXIT_DYNAMIC_TYPE_ERROR);
+                }
+                if (args.get(0) == null) {
+                    fatalError("Nil dereference in left()", EXIT_NIL_REF_ERROR);
+                }
+                return ((HeapObject) args.get(0)).getLeft();
+            case "right":
+                if (args.size() != 1 || !(args.get(0) instanceof HeapObject)) {
+                    fatalError("right() requires a Ref argument", EXIT_DYNAMIC_TYPE_ERROR);
+                }
+                if (args.get(0) == null) {
+                    fatalError("Nil dereference in right()", EXIT_NIL_REF_ERROR);
+                }
+                return ((HeapObject) args.get(0)).getRight();
+            case "setLeft":
+                if (args.size() != 2 || !(args.get(0) instanceof HeapObject)) {
+                    fatalError("setLeft() requires a Ref and Q argument", EXIT_DYNAMIC_TYPE_ERROR);
+                }
+                if (args.get(0) == null) {
+                    fatalError("Nil dereference in setLeft()", EXIT_NIL_REF_ERROR);
+                }
+                ((HeapObject) args.get(0)).setLeft(args.get(1));
+                return 1L;
+            case "setRight":
+                if (args.size() != 2 || !(args.get(0) instanceof HeapObject)) {
+                    fatalError("setRight() requires a Ref and Q argument", EXIT_DYNAMIC_TYPE_ERROR);
+                }
+                if (args.get(0) == null) {
+                    fatalError("Nil dereference in setRight()", EXIT_NIL_REF_ERROR);
+                }
+                ((HeapObject) args.get(0)).setRight(args.get(1));
+                return 1L;
+            case "isAtom":
+                if (args.size() != 1) {
+                    fatalError("isAtom() requires one Q argument", EXIT_DYNAMIC_TYPE_ERROR);
+                }
+                return (args.get(0) == null || args.get(0) instanceof Long) ? 1L : 0L;
+            case "isNil":
+                if (args.size() != 1) {
+                    fatalError("isNil() requires one Q argument", EXIT_DYNAMIC_TYPE_ERROR);
+                }
+                return args.get(0) == null ? 1L : 0L;
+            default:
+                FuncDef funcDef = functions.get(funcName);
+                if (funcDef == null) {
+                    throw new RuntimeException("Undefined function: " + funcName);
+                }
+                return executeFunction(funcDef, args);
         }
-
-        if (funcName.equals("randomInt")) {
-            if (evaluatedArgs.size() != 1 || !(evaluatedArgs.get(0) instanceof Long)) {
-                throw new RuntimeException("randomInt expects one integer argument");
-            }
-            return (long) random.nextInt(((Long) evaluatedArgs.get(0)).intValue());
-        }
-
-        FuncDef funcDef = functions.get(funcName);
-        if (funcDef == null) {
-            throw new RuntimeException("Undefined function: " + funcName);
-        }
-        return executeFunction(funcDef, evaluatedArgs);
     }
 
     private static class ReturnValue {
@@ -278,5 +365,9 @@ public class Interpreter {
     public static void fatalError(String message, int processReturnCode) {
         System.out.println(message);
         System.exit(processReturnCode);
+    }
+
+    private boolean isMutable(String varName) {
+        return mutableVars.containsKey(varName);
     }
 }

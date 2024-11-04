@@ -90,6 +90,12 @@ white_space = {new_line} | [ \t\f]
 "||"              { return symbol("||", OR); }
 "!"               { return symbol("!",  NOT); }
 ","               { return symbol(",", COMMA); }
+"int"             { return symbol("int", INT); }
+"Ref"             { return symbol("Ref", REF); }
+"Q"               { return symbol("Q", Q); }
+"nil"             { return symbol("nil", NIL); }
+"mutable"         { return symbol("mutable", MUTABLE); }
+"."               { return symbol(".",  DOT); }
 
 {Identifier} { return symbol("IDENT", IDENT, yytext()); }
 

@@ -227,6 +227,20 @@ public class Interpreter {
                 }
             }
             throw new RuntimeException("Undefined variable: " + name);
+        } else if (expr instanceof TypeCastExpr) {
+            TypeCastExpr typeCastExpr = (TypeCastExpr) expr;
+            Object value = evaluate(typeCastExpr.getExpr());
+            if (typeCastExpr.getType() == Type.REF) {
+                if (value != null && !(value instanceof HeapObject)) {
+                    fatalError("Cannot cast non-reference to Ref", EXIT_DYNAMIC_TYPE_ERROR);
+                }
+            }
+            return value;
+        } else if (expr instanceof DotExpr) {
+            DotExpr dotExpr = (DotExpr) expr;
+            Object left = evaluate(dotExpr.getLeft());
+            Object right = evaluate(dotExpr.getRight());
+            return new HeapObject(left, right);
         } else if (expr instanceof BinaryExpr) {
             BinaryExpr binaryExpr = (BinaryExpr) expr;
             Object left = evaluate(binaryExpr.getLeftExpr());
@@ -248,9 +262,23 @@ public class Interpreter {
                 case BinaryExpr.GEQ:
                     return (Long) left >= (Long) right;
                 case BinaryExpr.EQEQ:
-                    return left == null ? right == null : left.equals(right);
+                    if (left == null)
+                        return right == null;
+                    if (right == null)
+                        return false;
+                    if (left instanceof Long && right instanceof Long) {
+                        return ((Long) left).longValue() == ((Long) right).longValue();
+                    }
+                    return left.equals(right);
                 case BinaryExpr.NEQ:
-                    return left == null ? right != null : !left.equals(right);
+                    if (left == null)
+                        return right != null;
+                    if (right == null)
+                        return true;
+                    if (left instanceof Long && right instanceof Long) {
+                        return ((Long) left).longValue() != ((Long) right).longValue();
+                    }
+                    return !left.equals(right);
                 case BinaryExpr.AND:
                     return (Boolean) left && (Boolean) right;
                 case BinaryExpr.OR:
@@ -276,16 +304,6 @@ public class Interpreter {
                 argValues.add(evaluate(arg));
             }
             return executeBuiltinOrUserFunction(callExpr.getFuncName(), argValues);
-        } else if (expr instanceof DotExpr) {
-            DotExpr dotExpr = (DotExpr) expr;
-            Object left = evaluate(dotExpr.getLeft());
-            Object right = evaluate(dotExpr.getRight());
-            return new HeapObject(left, right);
-        } else if (expr instanceof TypeCastExpr) {
-            TypeCastExpr typeCastExpr = (TypeCastExpr) expr;
-            Object value = evaluate(typeCastExpr.getExpr());
-            // For now, we're not doing any actual type checking
-            return value;
         }
         throw new RuntimeException("Unknown expression type");
     }

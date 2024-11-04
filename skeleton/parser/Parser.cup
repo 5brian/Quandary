@@ -26,8 +26,8 @@ parser code {:
     }
 :};
 
-terminal PLUS, MINUS, TIMES, LPAREN, RPAREN, LBRACE, RBRACE, SEMICOLON, EQ, COMMA;
-terminal IF, ELSE, WHILE, PRINT, RETURN, INT;
+terminal PLUS, MINUS, TIMES, DOT, LPAREN, RPAREN, LBRACE, RBRACE, SEMICOLON, EQ, COMMA;
+terminal IF, ELSE, WHILE, PRINT, RETURN, INT, REF, Q, NIL, MUTABLE;
 terminal LEQ, GEQ, EQEQ, NEQ, LT, GT, AND, OR, NOT;
 terminal Long INTCONST;
 terminal String IDENT;
@@ -42,6 +42,7 @@ non terminal Stmt            stmt;
 non terminal List<Expr>      exprList;
 non terminal Expr            expr;
 non terminal Expr            cond;
+non terminal Type           type;
 
 precedence left OR;
 precedence left AND;
@@ -49,8 +50,9 @@ precedence left EQEQ, NEQ;
 precedence left LT, GT, LEQ, GEQ;
 precedence left PLUS, MINUS;
 precedence left TIMES;
+precedence left DOT;
 precedence right NOT, UMINUS;
-precedence left LPAREN;
+precedence nonassoc LPAREN;
 precedence nonassoc IF;
 precedence nonassoc ELSE;
 
@@ -64,15 +66,28 @@ funcDefList ::= funcDef:fd funcDefList:fl
                 {: List<FuncDef> list = new ArrayList<>(); list.add(fd); RESULT = list; :}
               ;
 
-funcDef ::= INT IDENT:name LPAREN paramList:params RPAREN LBRACE stmtList:body RBRACE
-            {: RESULT = new FuncDef(name, params, body, loc(nameleft, nameright)); :}
+funcDef ::= type:t IDENT:name LPAREN paramList:params RPAREN LBRACE stmtList:body RBRACE
+            {: RESULT = new FuncDef(name, t, false, params, body, loc(nameleft, nameright)); :}
+          | MUTABLE type:t IDENT:name LPAREN paramList:params RPAREN LBRACE stmtList:body RBRACE
+            {: RESULT = new FuncDef(name, t, true, params, body, loc(nameleft, nameright)); :}
           ;
 
-paramList ::= INT IDENT:param COMMA paramList:pl
-              {: pl.add(0, new VarDecl(param, null, loc(paramleft, paramright))); RESULT = pl; :}
-            | INT IDENT:param
+type ::= INT  {: RESULT = Type.INT; :}
+       | REF  {: RESULT = Type.REF; :}
+       | Q    {: RESULT = Type.Q; :}
+       ;
+
+paramList ::= type:t IDENT:param COMMA paramList:pl
+              {: pl.add(0, new VarDecl(param, t, null, false, loc(paramleft, paramright))); RESULT = pl; :}
+            | MUTABLE type:t IDENT:param COMMA paramList:pl
+              {: pl.add(0, new VarDecl(param, t, null, true, loc(paramleft, paramright))); RESULT = pl; :}
+            | type:t IDENT:param
               {: List<VarDecl> params = new ArrayList<>();
-                 params.add(new VarDecl(param, null, loc(paramleft, paramright)));
+                 params.add(new VarDecl(param, t, null, false, loc(paramleft, paramright)));
+                 RESULT = params; :}
+            | MUTABLE type:t IDENT:param
+              {: List<VarDecl> params = new ArrayList<>();
+                 params.add(new VarDecl(param, t, null, true, loc(paramleft, paramright)));
                  RESULT = params; :}
             | /* empty */
               {: RESULT = new ArrayList<>(); :}
@@ -84,8 +99,12 @@ stmtList ::= stmt:s stmtList:sl
              {: RESULT = new ArrayList<>(); :}
            ;
 
-stmt ::= INT IDENT:id EQ expr:e SEMICOLON
-         {: RESULT = new VarDecl(id, e, loc(idleft, idright)); :}
+stmt ::= type:t IDENT:id EQ expr:e SEMICOLON
+         {: RESULT = new VarDecl(id, t, e, false, loc(idleft, idright)); :}
+       | MUTABLE type:t IDENT:id EQ expr:e SEMICOLON
+         {: RESULT = new VarDecl(id, t, e, true, loc(idleft, idright)); :}
+       | IDENT:id EQ expr:e SEMICOLON
+         {: RESULT = new AssignStmt(id, e, loc(idleft, idright)); :}
        | PRINT expr:e SEMICOLON
          {: RESULT = new PrintStmt(e, loc(eleft, eright)); :}
        | IF LPAREN cond:c RPAREN stmt:s
@@ -112,6 +131,8 @@ exprList ::= expr:e COMMA exprList:el
 
 expr ::= INTCONST:c
          {: RESULT = new ConstExpr(c, loc(cleft, cright)); :}
+       | NIL:n
+         {: RESULT = new NilExpr(loc(nleft, nright)); :}
        | IDENT:id
          {: RESULT = new VarExpr(id, loc(idleft, idright)); :}
        | expr:e1 PLUS expr:e2
@@ -120,11 +141,15 @@ expr ::= INTCONST:c
          {: RESULT = new BinaryExpr(e1, BinaryExpr.MINUS, e2, loc(e1left, e1right)); :}
        | expr:e1 TIMES expr:e2
          {: RESULT = new BinaryExpr(e1, BinaryExpr.TIMES, e2, loc(e1left, e1right)); :}
+       | expr:e1 DOT expr:e2
+         {: RESULT = new DotExpr(e1, e2, loc(e1left, e1right)); :}
        | MINUS expr:e
          {: RESULT = new UnaryExpr(UnaryExpr.MINUS, e, loc(eleft, eright)); :}
          %prec UMINUS
        | LPAREN expr:e RPAREN
          {: RESULT = e; :}
+       | LPAREN type:t RPAREN expr:e
+         {: RESULT = new TypeCastExpr(t, e, loc(tleft, tright)); :}
        | IDENT:name LPAREN exprList:args RPAREN
          {: RESULT = new CallExpr(name, args, loc(nameleft, nameright)); :}
        ;

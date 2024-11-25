@@ -32,6 +32,7 @@ terminal LEQ, GEQ, EQEQ, NEQ, LT, GT, AND, OR, NOT;
 terminal Long INTCONST;
 terminal String IDENT;
 terminal UMINUS;
+terminal LBRACKET, RBRACKET;
 
 non terminal Program         program;
 non terminal List<FuncDef>   funcDefList;
@@ -135,14 +136,6 @@ expr ::= INTCONST:c
          {: RESULT = new NilExpr(loc(nleft, nright)); :}
        | IDENT:id
          {: RESULT = new VarExpr(id, loc(idleft, idright)); :}
-       | expr:e1 PLUS expr:e2
-         {: RESULT = new BinaryExpr(e1, BinaryExpr.PLUS, e2, loc(e1left, e1right)); :}
-       | expr:e1 MINUS expr:e2
-         {: RESULT = new BinaryExpr(e1, BinaryExpr.MINUS, e2, loc(e1left, e1right)); :}
-       | expr:e1 TIMES expr:e2
-         {: RESULT = new BinaryExpr(e1, BinaryExpr.TIMES, e2, loc(e1left, e1right)); :}
-       | expr:e1 DOT expr:e2
-         {: RESULT = new DotExpr(e1, e2, loc(e1left, e1right)); :}
        | MINUS expr:e
          {: RESULT = new UnaryExpr(UnaryExpr.MINUS, e, loc(eleft, eright)); :}
          %prec UMINUS
@@ -152,6 +145,22 @@ expr ::= INTCONST:c
          {: RESULT = new TypeCastExpr(t, e, loc(tleft, tright)); :}
        | IDENT:name LPAREN exprList:args RPAREN
          {: RESULT = new CallExpr(name, args, loc(nameleft, nameright)); :}
+       | expr:e1 PLUS expr:e2  
+         {: RESULT = new BinaryExpr(e1, BinaryExpr.PLUS, e2, loc(e1left, e1right)); :}
+       | expr:e1 MINUS expr:e2
+         {: RESULT = new BinaryExpr(e1, BinaryExpr.MINUS, e2, loc(e1left, e1right)); :}
+       | expr:e1 TIMES expr:e2
+         {: RESULT = new BinaryExpr(e1, BinaryExpr.TIMES, e2, loc(e1left, e1right)); :}
+       | expr:e1 DOT expr:e2
+         {: RESULT = new DotExpr(e1, e2, loc(e1left, e1right)); :}
+       | LBRACKET expr:e1 PLUS expr:e2 RBRACKET
+         {: RESULT = new ConcurrentExpr(e1, BinaryExpr.PLUS, e2, loc(e1left, e1right)); :}
+       | LBRACKET expr:e1 MINUS expr:e2 RBRACKET
+         {: RESULT = new ConcurrentExpr(e1, BinaryExpr.MINUS, e2, loc(e1left, e1right)); :}
+       | LBRACKET expr:e1 TIMES expr:e2 RBRACKET
+         {: RESULT = new ConcurrentExpr(e1, BinaryExpr.TIMES, e2, loc(e1left, e1right)); :}
+       | LBRACKET expr:e1 DOT expr:e2 RBRACKET
+         {: RESULT = new ConcurrentExpr(e1, BinaryExpr.DOT, e2, loc(e1left, e1right)); :}
        ;
 
 cond ::= expr:e1 LEQ expr:e2

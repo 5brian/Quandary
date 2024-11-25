@@ -96,6 +96,8 @@ white_space = {new_line} | [ \t\f]
 "nil"             { return symbol("nil", NIL); }
 "mutable"         { return symbol("mutable", MUTABLE); }
 "."               { return symbol(".",  DOT); }
+"["               { return symbol("[",  LBRACKET); }
+"]"               { return symbol("]",  RBRACKET); }
 
 {Identifier} { return symbol("IDENT", IDENT, yytext()); }
 

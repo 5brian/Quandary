@@ -1,11 +1,17 @@
 package interpreter;
 
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.TimeUnit;
+
 public class HeapObject {
     private Object left;
     private Object right;
     private static long nextId = 1;
     private final long id;
+    private final Lock lock = new ReentrantLock(true);
     private volatile Thread lockHolder = null;
+    private static final long LOCK_TIMEOUT_MS = 50;
 
     public HeapObject(Object left, Object right) {
         this.left = left;
@@ -13,18 +19,28 @@ public class HeapObject {
         this.id = nextId++;
     }
 
-    public synchronized boolean tryAcquireLock() {
-        if (lockHolder == null) {
-            lockHolder = Thread.currentThread();
-            return true;
+    public boolean tryAcquireLock() {
+        try {
+            if (lock.tryLock(LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                lockHolder = Thread.currentThread();
+                return true;
+            }
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
-        return false;
     }
 
-    public synchronized boolean releaseLock() {
+    public boolean releaseLock() {
         if (lockHolder == Thread.currentThread()) {
-            lockHolder = null;
-            return true;
+            try {
+                lockHolder = null;
+                lock.unlock();
+                return true;
+            } catch (IllegalMonitorStateException e) {
+                return false;
+            }
         }
         return false;
     }

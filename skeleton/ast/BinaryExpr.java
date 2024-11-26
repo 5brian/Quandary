@@ -13,6 +13,7 @@ public class BinaryExpr extends Expr {
     public static final int NEQ = 9;
     public static final int AND = 10;
     public static final int OR = 11;
+    public static final int DOT = 12;
 
     final Expr expr1;
     final int operator;

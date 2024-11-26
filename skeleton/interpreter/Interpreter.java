@@ -14,9 +14,59 @@ public class Interpreter {
     public static final int EXIT_QUANDARY_HEAP_OUT_OF_MEMORY_ERROR = 5;
 
     static private Interpreter interpreter;
+    private final ThreadLocal<Stack<Map<String, Object>>> threadLocalEnvStack = new ThreadLocal<>();
 
     public static Interpreter getInterpreter() {
         return interpreter;
+    }
+
+    private static class EvalResult {
+        Object value;
+        RuntimeException error;
+    }
+
+    private static class EvalThread extends Thread {
+        private final Expr expr;
+        private final Map<String, Object> env;
+        private final EvalResult result;
+        private final Stack<Map<String, Object>> threadEnvStack;
+
+        public EvalThread(Expr expr, Map<String, Object> env, EvalResult result,
+                Stack<Map<String, Object>> parentEnvStack) {
+            this.expr = expr;
+            this.env = env;
+            this.result = result;
+            this.threadEnvStack = new Stack<>();
+            for (Map<String, Object> map : parentEnvStack) {
+                this.threadEnvStack.push(new HashMap<>(map));
+            }
+        }
+
+        @Override
+        public void run() {
+            try {
+                Interpreter interpreter = Interpreter.getInterpreter();
+                interpreter.pushThreadLocalEnvStack(threadEnvStack);
+                result.value = interpreter.evaluate(expr, env);
+            } catch (RuntimeException e) {
+                result.error = e;
+            } finally {
+                Interpreter.getInterpreter().popThreadLocalEnvStack();
+            }
+        }
+    }
+
+    private void pushThreadLocalEnvStack(Stack<Map<String, Object>> stack) {
+        threadLocalEnvStack.set(stack);
+    }
+
+    private void popThreadLocalEnvStack() {
+        threadLocalEnvStack.remove();
+    }
+
+    private Stack<Map<String, Object>> getCurrentEnvStack() {
+        Stack<Map<String, Object>> stack = threadLocalEnvStack.get();
+        return stack != null ? stack : envStack;
     }
 
     public static void main(String[] args) {
@@ -130,26 +180,34 @@ public class Interpreter {
             }
         }
 
-        envStack.push(localVars);
+        Stack<Map<String, Object>> currentStack = getCurrentEnvStack();
+        currentStack.push(localVars);
         Object result = null;
 
-        for (Stmt stmt : funcDef.getBody()) {
+        List<Stmt> body = funcDef.getBody();
+        if (body.isEmpty()) {
+            currentStack.pop();
+            throw new RuntimeException("Function must end with a return statement: " + funcDef.getName());
+        }
+
+        for (Stmt stmt : body) {
             result = executeStatement(stmt);
             if (result instanceof ReturnValue) {
-                envStack.pop();
+                currentStack.pop();
                 return ((ReturnValue) result).getValue();
             }
         }
 
-        envStack.pop();
+        currentStack.pop();
         throw new RuntimeException("Function must end with a return statement: " + funcDef.getName());
     }
 
     Object executeStatement(Stmt stmt) {
+        Stack<Map<String, Object>> currentStack = getCurrentEnvStack();
         if (stmt instanceof VarDecl) {
             VarDecl varDecl = (VarDecl) stmt;
-            Object value = evaluate(varDecl.getInitExpr());
-            envStack.peek().put(varDecl.getName(), value);
+            Object value = evaluate(varDecl.getInitExpr(), currentStack.peek());
+            currentStack.peek().put(varDecl.getName(), value);
             if (varDecl.isMutable()) {
                 mutableVars.put(varDecl.getName(), true);
             }
@@ -159,11 +217,11 @@ public class Interpreter {
             if (!isMutable(name)) {
                 throw new RuntimeException("Cannot assign to immutable variable: " + name);
             }
-            Object value = evaluate(assignStmt.getExpr());
+            Object value = evaluate(assignStmt.getExpr(), currentStack.peek());
             boolean found = false;
-            for (int i = envStack.size() - 1; i >= 0; i--) {
-                if (envStack.get(i).containsKey(name)) {
-                    envStack.get(i).put(name, value);
+            for (int i = currentStack.size() - 1; i >= 0; i--) {
+                if (currentStack.get(i).containsKey(name)) {
+                    currentStack.get(i).put(name, value);
                     found = true;
                     break;
                 }
@@ -173,17 +231,17 @@ public class Interpreter {
             }
         } else if (stmt instanceof PrintStmt) {
             PrintStmt printStmt = (PrintStmt) stmt;
-            System.out.println(evaluate(printStmt.getExpr()));
+            System.out.println(evaluate(printStmt.getExpr(), currentStack.peek()));
         } else if (stmt instanceof IfStmt) {
             IfStmt ifStmt = (IfStmt) stmt;
-            if ((Boolean) evaluate(ifStmt.getCondition())) {
+            if ((Boolean) evaluate(ifStmt.getCondition(), currentStack.peek())) {
                 return executeStatement(ifStmt.getThenStmt());
             } else if (ifStmt.getElseStmt() != null) {
                 return executeStatement(ifStmt.getElseStmt());
             }
         } else if (stmt instanceof WhileStmt) {
             WhileStmt whileStmt = (WhileStmt) stmt;
-            while ((Boolean) evaluate(whileStmt.getCondition())) {
+            while ((Boolean) evaluate(whileStmt.getCondition(), currentStack.peek())) {
                 Object result = executeStatement(whileStmt.getBody());
                 if (result instanceof ReturnValue) {
                     return result;
@@ -191,45 +249,54 @@ public class Interpreter {
             }
         } else if (stmt instanceof BlockStmt) {
             BlockStmt blockStmt = (BlockStmt) stmt;
-            envStack.push(new HashMap<>());
-            for (Stmt s : blockStmt.getStatements()) {
+            currentStack.push(new HashMap<>());
+            List<Stmt> statements = blockStmt.getStatements();
+            if (statements.isEmpty()) {
+                currentStack.pop();
+                return null;
+            }
+            for (Stmt s : statements) {
                 Object result = executeStatement(s);
                 if (result instanceof ReturnValue) {
-                    envStack.pop();
+                    currentStack.pop();
                     return result;
                 }
             }
-            envStack.pop();
+            currentStack.pop();
         } else if (stmt instanceof ReturnStmt) {
             ReturnStmt returnStmt = (ReturnStmt) stmt;
-            return new ReturnValue(evaluate(returnStmt.getExpr()));
+            return new ReturnValue(evaluate(returnStmt.getExpr(), currentStack.peek()));
         } else if (stmt instanceof CallStmt) {
             CallStmt callStmt = (CallStmt) stmt;
             List<Object> argValues = new ArrayList<>();
             for (Expr arg : callStmt.getArgs()) {
-                argValues.add(evaluate(arg));
+                argValues.add(evaluate(arg, currentStack.peek()));
             }
             executeBuiltinOrUserFunction(callStmt.getName(), argValues);
         }
         return null;
     }
 
-    Object evaluate(Expr expr) {
+    Object evaluate(Expr expr, Map<String, Object> env) {
+        Stack<Map<String, Object>> currentStack = getCurrentEnvStack();
         if (expr instanceof ConstExpr) {
             return ((ConstExpr) expr).getValue();
         } else if (expr instanceof NilExpr) {
             return null;
         } else if (expr instanceof VarExpr) {
             String name = ((VarExpr) expr).getName();
-            for (int i = envStack.size() - 1; i >= 0; i--) {
-                if (envStack.get(i).containsKey(name)) {
-                    return envStack.get(i).get(name);
+            if (env.containsKey(name)) {
+                return env.get(name);
+            }
+            for (int i = currentStack.size() - 1; i >= 0; i--) {
+                if (currentStack.get(i).containsKey(name)) {
+                    return currentStack.get(i).get(name);
                 }
             }
             throw new RuntimeException("Undefined variable: " + name);
         } else if (expr instanceof TypeCastExpr) {
             TypeCastExpr typeCastExpr = (TypeCastExpr) expr;
-            Object value = evaluate(typeCastExpr.getExpr());
+            Object value = evaluate(typeCastExpr.getExpr(), env);
             if (typeCastExpr.getType() == Type.REF) {
                 if (value != null && !(value instanceof HeapObject)) {
                     fatalError("Cannot cast non-reference to Ref", EXIT_DYNAMIC_TYPE_ERROR);
@@ -238,13 +305,13 @@ public class Interpreter {
             return value;
         } else if (expr instanceof DotExpr) {
             DotExpr dotExpr = (DotExpr) expr;
-            Object left = evaluate(dotExpr.getLeft());
-            Object right = evaluate(dotExpr.getRight());
+            Object left = evaluate(dotExpr.getLeft(), env);
+            Object right = evaluate(dotExpr.getRight(), env);
             return new HeapObject(left, right);
         } else if (expr instanceof BinaryExpr) {
             BinaryExpr binaryExpr = (BinaryExpr) expr;
-            Object left = evaluate(binaryExpr.getLeftExpr());
-            Object right = evaluate(binaryExpr.getRightExpr());
+            Object left = evaluate(binaryExpr.getLeftExpr(), env);
+            Object right = evaluate(binaryExpr.getRightExpr(), env);
 
             switch (binaryExpr.getOperator()) {
                 case BinaryExpr.PLUS:
@@ -288,7 +355,7 @@ public class Interpreter {
             }
         } else if (expr instanceof UnaryExpr) {
             UnaryExpr unaryExpr = (UnaryExpr) expr;
-            Object operand = evaluate(unaryExpr.getExpr());
+            Object operand = evaluate(unaryExpr.getExpr(), env);
             switch (unaryExpr.getOperator()) {
                 case UnaryExpr.MINUS:
                     return -(Long) operand;
@@ -301,11 +368,56 @@ public class Interpreter {
             CallExpr callExpr = (CallExpr) expr;
             List<Object> argValues = new ArrayList<>();
             for (Expr arg : callExpr.getArguments()) {
-                argValues.add(evaluate(arg));
+                argValues.add(evaluate(arg, env));
             }
             return executeBuiltinOrUserFunction(callExpr.getFuncName(), argValues);
+        } else if (expr instanceof ConcurrentExpr) {
+            return evaluateConcurrent((ConcurrentExpr) expr, env);
         }
         throw new RuntimeException("Unknown expression type");
+    }
+
+    private Object evaluateConcurrent(ConcurrentExpr expr, Map<String, Object> env) {
+        Map<String, Object> leftEnv = new HashMap<>();
+        Map<String, Object> rightEnv = new HashMap<>();
+        for (Map.Entry<String, Object> entry : env.entrySet()) {
+            leftEnv.put(entry.getKey(), entry.getValue());
+            rightEnv.put(entry.getKey(), entry.getValue());
+        }
+
+        EvalResult leftResult = new EvalResult();
+        EvalResult rightResult = new EvalResult();
+
+        Thread leftThread = new EvalThread(expr.getLeft(), leftEnv, leftResult, getCurrentEnvStack());
+        Thread rightThread = new EvalThread(expr.getRight(), rightEnv, rightResult, getCurrentEnvStack());
+
+        leftThread.start();
+        rightThread.start();
+
+        try {
+            leftThread.join();
+            rightThread.join();
+        } catch (InterruptedException e) {
+            throw new RuntimeException("Thread interrupted");
+        }
+
+        if (leftResult.error != null)
+            throw leftResult.error;
+        if (rightResult.error != null)
+            throw rightResult.error;
+
+        switch (expr.getOperator()) {
+            case BinaryExpr.PLUS:
+                return (Long) leftResult.value + (Long) rightResult.value;
+            case BinaryExpr.MINUS:
+                return (Long) leftResult.value - (Long) rightResult.value;
+            case BinaryExpr.TIMES:
+                return (Long) leftResult.value * (Long) rightResult.value;
+            case BinaryExpr.DOT:
+                return new HeapObject(leftResult.value, rightResult.value);
+            default:
+                throw new RuntimeException("Invalid operation in concurrent expression");
+        }
     }
 
     private Object executeBuiltinOrUserFunction(String funcName, List<Object> args) {
@@ -359,6 +471,22 @@ public class Interpreter {
                     fatalError("isNil() requires one Q argument", EXIT_DYNAMIC_TYPE_ERROR);
                 }
                 return args.get(0) == null ? 1L : 0L;
+            case "acq":
+                if (args.size() != 1 || !(args.get(0) instanceof HeapObject)) {
+                    fatalError("acq() requires a Ref argument", EXIT_DYNAMIC_TYPE_ERROR);
+                }
+                if (args.get(0) == null) {
+                    fatalError("Nil dereference in acq()", EXIT_NIL_REF_ERROR);
+                }
+                return ((HeapObject) args.get(0)).tryAcquireLock() ? 1L : 0L;
+            case "rel":
+                if (args.size() != 1 || !(args.get(0) instanceof HeapObject)) {
+                    fatalError("rel() requires a Ref argument", EXIT_DYNAMIC_TYPE_ERROR);
+                }
+                if (args.get(0) == null) {
+                    fatalError("Nil dereference in rel()", EXIT_NIL_REF_ERROR);
+                }
+                return ((HeapObject) args.get(0)).releaseLock() ? 1L : 0L;
             default:
                 FuncDef funcDef = functions.get(funcName);
                 if (funcDef == null) {

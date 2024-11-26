@@ -378,11 +378,18 @@ public class Interpreter {
     }
 
     private Object evaluateConcurrent(ConcurrentExpr expr, Map<String, Object> env) {
+        Map<String, Object> leftEnv = new HashMap<>();
+        Map<String, Object> rightEnv = new HashMap<>();
+        for (Map.Entry<String, Object> entry : env.entrySet()) {
+            leftEnv.put(entry.getKey(), entry.getValue());
+            rightEnv.put(entry.getKey(), entry.getValue());
+        }
+
         EvalResult leftResult = new EvalResult();
         EvalResult rightResult = new EvalResult();
 
-        Thread leftThread = new EvalThread(expr.getLeft(), new HashMap<>(env), leftResult, getCurrentEnvStack());
-        Thread rightThread = new EvalThread(expr.getRight(), new HashMap<>(env), rightResult, getCurrentEnvStack());
+        Thread leftThread = new EvalThread(expr.getLeft(), leftEnv, leftResult, getCurrentEnvStack());
+        Thread rightThread = new EvalThread(expr.getRight(), rightEnv, rightResult, getCurrentEnvStack());
 
         leftThread.start();
         rightThread.start();
